@@ -710,6 +710,19 @@ body:not(.reg-expanded) .cal-hint { animation: calExtraFadeIn 0.26s ease both; }
 /* 펼친 베이지 칸(.log-extra) 안의 콜아웃은 칸과 같은 베이지라 묻힌다 → 흰 바탕 + 카드와 같은 옅은 그림자(11/11 대표 시안 E1). 펼친 칸 안 흰 카드(수료 구역) 속 콜아웃은 그대로 베이지 */
 .log-extra .feed-callout { background: #fff; box-shadow: 0 1px 4px rgba(0,0,0,0.06); }
 .log-extra .card .feed-callout { background: var(--brand-tint); box-shadow: none; }
+/* (v2.8.0 항목 149, 대표 261125) 노션 콜아웃 색: 흰 바탕에서는 노션 색 바탕(띠 없음), 베이지 칸(.log-extra) 안에서는 흰 바탕 + 그림자 + 왼쪽 3px 색 선(A′). 색이 없으면 위 베이지 그대로 */
+.feed-callout.tone-gray   { --c-bg: #F1F1EF; --c-line: #D3D1CB; }
+.feed-callout.tone-brown  { --c-bg: #F4EEEE; --c-line: #D9C8BE; }
+.feed-callout.tone-orange { --c-bg: #FBECDD; --c-line: #F1C79B; }
+.feed-callout.tone-yellow { --c-bg: #FBF3DB; --c-line: #EDD58A; }
+.feed-callout.tone-green  { --c-bg: #EDF3EC; --c-line: #B7D3B4; }
+.feed-callout.tone-blue   { --c-bg: #E7F3F8; --c-line: #A8CFE0; }
+.feed-callout.tone-purple { --c-bg: #F6F3F9; --c-line: #CDBDE0; }
+.feed-callout.tone-pink   { --c-bg: #FAF1F5; --c-line: #E7BCD0; }
+.feed-callout.tone-red    { --c-bg: #FDEBEC; --c-line: #F1B7B9; }
+.feed-callout[class*="tone-"] { background: var(--c-bg); }
+.log-extra .feed-callout[class*="tone-"] { background: #fff; border-left: 3px solid var(--c-line); }
+.log-extra .card .feed-callout[class*="tone-"] { background: var(--c-bg); border-left: none; }
 .feed-callout-main { flex: 1; min-width: 0; }
 .feed-callout-main .feed-body { border-top: none; padding-top: 0; margin-top: 6px; }
 .feed-callout-main > .feed-body:first-child { margin-top: 0; }
@@ -816,6 +829,8 @@ body:not(.reg-expanded) .cal-hint { animation: calExtraFadeIn 0.26s ease both; }
 .sec-icon { width: 16px; height: 16px; display: inline-flex; flex-shrink: 0; }
 .sec-icon svg { width: 100%; height: 100%; display: block; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 .home-stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.home-stats.n2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.home-stats.n1 { grid-template-columns: minmax(0, 1fr); }
 .home-stat { background: var(--brand-tint); border-radius: 10px; padding: 10px 6px; text-align: center; min-width: 0; }
 .home-stat b { display: block; font-size: 15px; font-weight: 800; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .home-stat small { display: block; font-size: 11px; color: var(--text-muted); margin-top: 2px; }
@@ -852,6 +867,13 @@ body:not(.reg-expanded) .cal-hint { animation: calExtraFadeIn 0.26s ease both; }
 .letter-body .feed-body { border-top: none; padding-top: 0; margin-top: 0; }
 .letter-lines + .letter-lines { margin-top: 12px; }
 .letter-note { font-size: 14px; line-height: 1.6; white-space: pre-line; color: var(--text-primary); }
+.letter-notes .rep-sub:not(:first-child) { margin-top: 12px; }
+/* (v2.8.0 항목 148) 첫 화면 일정 아래 가정통신문 칸: 일정 달력과 같은 너비 */
+.letter-intro-list { width: 100%; max-width: 560px; }
+/* (261125 대표) 첫 화면 마지막 칸: 최신 달 본문을 펼쳐 둔다. 길면 칸이 늘어나 그대로 스크롤(넘김 높이 고정 없음). */
+.snap-section.letter-section { height: auto; min-height: 100vh; overflow: visible; }
+.scroll-container.free-scroll { scroll-snap-type: none; }
+.letter-inline .sec-title:first-child { margin-top: 0; }
 .letter-action { display: block; width: 100%; min-height: 44px; margin-top: 16px; border: 0; border-radius: 10px; background: #F5EFE7; color: #3F372F; font: inherit; font-size: 14px; font-weight: 700; cursor: pointer; }
 /* 선생님 한마디 카드: 한마디 없이 본문만 있으면 옅은 안내 한 줄. 수료 구역의 보고서 본문은 가정통신문 본문과 같은 카드, 비면 자리도 남기지 않는다 */
 .teacher-card .speech.muted { color: var(--text-muted); }
@@ -1114,7 +1136,7 @@ body:not(.reg-expanded) .cal-hint { animation: calExtraFadeIn 0.26s ease both; }
 </div>
 
 <script src="hada_config.js"></script>
-<script src="student_report_part1.js?v=f5b5ae17"></script>
-<script src="student_report_part2.js?v=26d96651"></script>
+<script src="student_report_part1.js?v=397d96b8"></script>
+<script src="student_report_part2.js?v=a4a747fc"></script>
 </body>
 </html>

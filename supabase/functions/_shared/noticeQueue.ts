@@ -25,6 +25,7 @@ import {
 	extractErrorMessage,
 	getAlimtalkConfig,
 	getBotUserId,
+	LETTER_CONFIG_NO_CLASS,
 	notionGetPage,
 	notionPatchPageProperties,
 	type AlimtalkConfigCategory,
@@ -39,7 +40,7 @@ import {
 	resolveAlimtalkRecipients,
 } from "./alimtalkShared.ts"
 import { refreshStudentReport } from "./dailyReportRefresh.ts"
-import { buildLetterNotice, LetterBlocked } from "./monthlyNotice.ts"
+import { buildLetterNotice, LetterBlocked, letterSentByLogs } from "./monthlyNotice.ts"
 import { alimtalkVar, BULLET, isArtsClass, reportConfigChain, reportSectionVars, textbookListBlock } from "./noticeBlocks.ts"
 import { fitVariablesToTemplate } from "./templateFit.ts"
 import { createSolapiService } from "./solapiClient.ts"
@@ -72,11 +73,13 @@ type Prepared = {
 	// 설정 행이 없을 때 Secrets 기본 템플릿을 쓰지 않는다(수료 보고서: 맞는 기본 템플릿이 없음 → 템플릿 ID 없음 오류).
 	noEnvTemplate?: boolean
 	primaryPhone: string
-	variables: (notice: string) => Record<string, string>
+	// config = 고른 설정 행(가정통신문: 새 템플릿 행이면 #{클래스}를 빼고 보낸다)
+	variables: (notice: string, config: { code?: AlimtalkConfigCategory }) => Record<string, string>
 	log: { reportId?: string; tuitionId?: string; textbookCartId?: string; letterId?: string; periodStart?: string; periodEnd?: string }
 	clearBulkSelect: boolean
 	// 보낸 뒤 ✅ 완료와 함께 쓸 칸(진도 평가: 안내 일시)
 	doneExtra?: Record<string, unknown>
+	afterSent?: () => Promise<void>
 }
 
 const plain = (prop: any): string => {
@@ -206,6 +209,10 @@ const LOCK_REASON: Partial<Record<NoticeKind, string>> = {
 	tuition: "같은 달 수강료 안내(다른 반 포함)를 이미 보냈습니다. 다시 보내려면 [안내문 전송]을 누르세요.",
 	letter: "같은 달 가정통신문(다른 반 포함)을 이미 보냈습니다. 다시 보내려면 [안내문 전송]을 누르세요.",
 }
+// 가정통신문 장의 전송로그 중 성공한 알림톡(발송 구분 "월간 일정 안내", 발송 상태 "성공")이 있나. 버튼 요청 줄은 발송 구분이 달라 세지 않는다.
+// (판단 본체는 monthlyNotice.letterSentByLogs — 학부모 리포트도 같은 판단으로 보낸 장을 고른다.)
+export const alreadySentLetter = (page: any): Promise<boolean> => letterSentByLogs(page, (id) => noticeDeps.getPage(id))
+export const LETTER_RESEND_NOTE = "이미 보낸 가정통신문이라 다시 보내지 않았어요. 다시 보내려면 [안내문 전송]을 누르세요."
 // 수강료·가정통신문 [안내문 전송](개별)이 켠다. 켜져 있으면 같은 달 장을 이미 보냈어도 보낸다.
 const isForced = (page: any) => page?.properties?.["개별 전송"]?.checkbox === true
 
@@ -244,16 +251,26 @@ async function prepareTextbook(page: any): Promise<Prepared> {
 	}
 }
 
+// 새 템플릿에는 #{클래스}가 없다. 템플릿을 읽어 맞추는 길(templateFit)이 실패해도 없는 변수를 보내지 않게 여기서 뺀다.
+export function letterVariablesFor(variables: Record<string, string>, config: { code?: AlimtalkConfigCategory }): Record<string, string> {
+	if (config.code !== LETTER_CONFIG_NO_CLASS) return variables
+	const { ["#{클래스}"]: _drop, ...rest } = variables
+	return rest
+}
+
 async function prepareLetter(page: any): Promise<Prepared> {
 	const built = await noticeDeps.letter(page)
 	return {
 		registrationId: built.registrationId,
 		title: built.title,
 		logCategory: "월간 일정 안내",
-		configCategory: "월간 일정 안내",
+		// (가정통신문 새 템플릿) "월간 일정 안내(반 없음)" 행이 켜져 있으면 그 템플릿(🏛 클래스 줄 없음), 아니면 옛 "월간 일정 안내" 행.
+		configCategory: LETTER_CONFIG_NO_CLASS,
+		configFallback: ["월간 일정 안내"],
 		primaryPhone: "", // 가정통신문에는 연락처 롤업이 없다 → 우선 연락 대상이면 등록을 한 번 읽는다
-		variables: () => built.variables,
+		variables: (_notice, config) => letterVariablesFor(built.variables, config),
 		log: { letterId: page.id, periodStart: built.period.start, periodEnd: built.period.end },
+		afterSent: built.afterSent,
 		clearBulkSelect: false,
 	}
 }
@@ -300,6 +317,14 @@ export async function processNoticeQueueItem(payload: NoticePayload): Promise<vo
 		if (sent && !forced) {
 			return await finish(kind, pageId, "⚠️ 오류", LOCK_REASON[kind] ?? "같은 달 안내를 이미 보냈습니다.", bulkReset)
 		}
+		// (v2.8.0 항목 148) 가정통신문은 학생당 한 장이라 같은 달 장이 없다. 이 장 전송로그에 성공한 알림톡이 있으면
+		// 상태를 손으로 ⚪ 대기로 되돌려도 다시 보내지 않는다(다시 보내려면 [안내문 전송] = 개별 전송).
+		if (kind === "letter" && !forced && await alreadySentLetter(page)) {
+			// 이미 보낸 장이므로 ⚠️가 아니라 ✅ 완료로 되돌린다(리포트는 보낸 장을 읽는다). 이유는 마지막 오류가 아니라 발송함 '요청 결과'에 한 줄.
+			const boxId = getRelationFirstId(page, "알림톡 발송함")
+			if (boxId) await noticeDeps.patch(boxId, { "요청 결과": { rich_text: [{ text: { content: LETTER_RESEND_NOTE } }] } }).catch(() => {})
+			return await finish(kind, pageId, "✅ 완료", null, false)
+		}
 	}
 
 	// 발송 전 단계: 실패하면 오류만 적고 예외 → 큐 재시도(아직 보내지 않음, 상태는 ⚪ 대기 그대로).
@@ -317,7 +342,7 @@ export async function processNoticeQueueItem(payload: NoticePayload): Promise<vo
 		throw err
 	}
 	const senderUserId = (payload.clickerUserId ?? page.properties?.["실행자"]?.people?.[0]?.id ?? (await noticeDeps.botUserId().catch(() => null))) ?? undefined
-	const variables = prep.variables(config.notice ?? "")
+	const variables = prep.variables(config.notice ?? "", config)
 	const logBase = { registrationId: prep.registrationId, senderUserId, title: prep.title, category: prep.logCategory, ...prep.log }
 
 	// 발송 단계: 실패해도 다시 보내지 않는다(이미 나갔을 수 있음).
@@ -337,6 +362,7 @@ export async function processNoticeQueueItem(payload: NoticePayload): Promise<vo
 		await finish(kind, String(sib.id), "✅ 완료", null, bulkReset)
 	}
 	// (v2.8.0) 가정통신문: 보낸 달이 리포트 홈 목록에 바로 보이도록 같은 달 장의 등록 리포트를 새로 만든다. 실패해도 발송은 이미 끝났다.
+	if (prep.afterSent) await prep.afterSent().catch((err: unknown) => console.warn("[notice] 보낸 뒤 정리 건너뜀:", pageId, extractErrorMessage(err)))
 	if (kind === "letter") {
 		const regIds = new Set([prep.registrationId, ...siblings.map((sib: any) => getRelationFirstId(sib, "등록") ?? prep.registrationId)])
 		for (const id of regIds) await noticeDeps.refresh(id).catch((err: unknown) => console.warn("[notice] 가정통신문 리포트 최신화 건너뜀:", id, extractErrorMessage(err)))
