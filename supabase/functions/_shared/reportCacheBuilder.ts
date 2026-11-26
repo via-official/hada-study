@@ -353,6 +353,11 @@ export function reportHideOf(cls: any): { hide: ReportHideKind[]; legacy: boolea
   if (cls?.properties?.["리포트 구성"]?.select?.name === "평가만") return { hide: ["출결", "학습"], legacy: true }
   return { hide: [], legacy: false }
 }
+// (v2.8.0) 반 평균 숨김: 체크박스 '반 평균 숨김'이 켜져 있거나 '리포트 숨김'에 "반 평균"이 있으면 숨긴다(OR). 칸이 없으면 보여 준다.
+export function classAverageHiddenOf(cls: any): boolean {
+  if (cls?.properties?.["반 평균 숨김"]?.checkbox === true) return true
+  return ((cls?.properties?.["리포트 숨김"]?.multi_select ?? []) as any[]).some((o) => String(o?.name ?? "").trim() === "반 평균")
+}
 // (v2.8.0) 출결·학습을 숨기면(옛 "평가만" 포함) 화면이 평가 중심으로 줄인다.
 export function reportModeOf(cls: any): "all" | "tests_only" {
   const { hide } = reportHideOf(cls)
@@ -416,7 +421,7 @@ export async function buildRegistrationDetail(reg: any, cachedGetPage: (id: stri
   let reportHide: { hide: ReportHideKind[]; legacy: boolean } = { hide: [], legacy: false }
   if (classId) {
     const cls = await cachedGetPage(classId)
-    hideClassAverage = cls.properties?.["반 평균 숨김"]?.checkbox === true
+    hideClassAverage = classAverageHiddenOf(cls)
     report_mode = reportModeOf(cls)
     reportHide = reportHideOf(cls)
     const teacherId = firstRelationId(cls.properties["담당강사"])
@@ -690,10 +695,11 @@ export async function buildRegistrationDetail(reg: any, cachedGetPage: (id: stri
   const sourcePageBodies = new Map(
     await mapWithConcurrency(displayedSourceIds, 6, async (id) => [id, await readPageBodyBlocks(id)] as const),
   )
-  // (v2.8.0 작품 모아보기) 프로그램(예체능) 학습기록의 사진을 모두 모은다: 학생 학습활동 본문(이 학생 작품)과
+  // (v2.8.0 작품 모아보기) 학습기록의 사진을 모두 모은다: 학생 학습활동 본문(이 학생 작품)과
   // 학습기록 본문(반 공유 자료). 위에서 이미 읽은 본문은 다시 읽지 않고, 최근 GALLERY_MAX_LOGS 수업까지만 읽는다.
+  // (261126 대표 "다 동일하게 사진이 나타나면 좋겠어") 프로그램만이 아니라 모든 교재 — 사진이 있으면 보인다.
   const galleryLogs = pastLogDetails
-    .filter((l) => l.category === "학습" && l.isProgram && l.bookKey)
+    .filter((l) => l.category === "학습" && l.bookKey)
     .sort((a, b) => ((a.iso ?? "") < (b.iso ?? "") ? 1 : -1))
     .slice(0, GALLERY_MAX_LOGS)
   const knownBodies = new Map<string, unknown[]>([...studyLogBodies, ...activityPageBodies, ...sourcePageBodies])
